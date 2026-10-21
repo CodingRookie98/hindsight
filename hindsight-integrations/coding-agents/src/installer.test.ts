@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { INSTALLERS, MARKER, parseJsonc, run, type InstallCtx } from "./installer";
+import { INSTALLERS, MARKER, parseJsonc, run, nodeCommand, type InstallCtx } from "./installer";
 import { TRAECODE_WORKSPACE_ENABLED_KEY } from "./core/traecode-mcp";
 import { SKILL_DIRS } from "./core/skill-dirs";
 import { parse as parseToml } from "smol-toml";
@@ -1529,7 +1529,7 @@ describe("antigravity-cli installer", () => {
     });
     expect(readJson(settingsPath(ctx)).statusLine).toEqual({
       type: "command",
-      command: `node "${join(ctx.dist, "antigravity-statusline.js")}"`,
+      command: `node ${join(ctx.dist, "antigravity-statusline.js")}`,
     });
   });
 
@@ -1538,6 +1538,34 @@ describe("antigravity-cli installer", () => {
     expect(run(["install", "agy"], ctx)).toBe(0);
     expect(readJson(mcpPath(ctx)).mcpServers.hindsight.env.HINDSIGHT_MCP_HARNESS).toBe(
       "antigravity-cli"
+    );
+  });
+
+
+  it("quotes statusLine command when dist path contains spaces", () => {
+    const ctx = makeCtx();
+    ctx.dist = join(ctx.pkgRoot, "dist with spaces");
+    expect(run(["install", "antigravity-cli"], ctx)).toBe(0);
+    expect(readJson(settingsPath(ctx)).statusLine).toEqual({
+      type: "command",
+      command: `node "${join(ctx.dist, "antigravity-statusline.js")}"`,
+    });
+  });
+
+  it("quotes flat hook commands only when dist path contains spaces", () => {
+    const ctx = makeCtx();
+    expect(run(["install", "antigravity-cli"], ctx)).toBe(0);
+    let hooks = readJson(hooksPath(ctx));
+    expect(hooks[MARKER].PreInvocation[0].command).toBe(
+      `node ${join(ctx.dist, "antigravity-hook.js")}`
+    );
+
+    const spaceCtx = makeCtx();
+    spaceCtx.dist = join(spaceCtx.pkgRoot, "dist with spaces");
+    expect(run(["install", "antigravity-cli"], spaceCtx)).toBe(0);
+    hooks = readJson(hooksPath(spaceCtx));
+    expect(hooks[MARKER].PreInvocation[0].command).toBe(
+      `node "${join(spaceCtx.dist, "antigravity-hook.js")}"`
     );
   });
 
@@ -3155,5 +3183,21 @@ describe("every installed companion skill is kept current by the session-start s
       expect(readFileSync(installed, "utf8"), harness).toBe("packaged v2");
     }
     expect(withoutSkill.sort()).toEqual(NO_SKILL_MECHANISM);
+  });
+});
+
+describe("nodeCommand", () => {
+  it("leaves space-free paths unquoted to prevent literal quote leakage on shell-less hosts", () => {
+    expect(nodeCommand("/opt/hindsight/dist/hook.js")).toBe("node /opt/hindsight/dist/hook.js");
+    expect(nodeCommand("C:\\Users\\user\\.hindsight\\dist\\hook.js")).toBe(
+      "node C:\\Users\\user\\.hindsight\\dist\\hook.js"
+    );
+  });
+
+  it("quotes paths containing spaces", () => {
+    expect(nodeCommand("/opt/my path/dist/hook.js")).toBe('node "/opt/my path/dist/hook.js"');
+    expect(nodeCommand("C:\\Program Files\\app\\hook.js")).toBe(
+      'node "C:\\Program Files\\app\\hook.js"'
+    );
   });
 });

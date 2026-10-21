@@ -224,6 +224,15 @@ function setOrDelete(obj: Record<string, any>, key: string, arr: any[]): void {
   else delete obj[key];
 }
 
+/** Formats a node invocation command string for hooks and statusLine.
+ * Quotes the script path only when it contains spaces. On hosts that spawn commands without a shell
+ * (e.g. Antigravity-CLI on Windows), unneeded outer quotes get passed as literal argv characters,
+ * causing Node's module loader to resolve '"C:\..."' as a relative path under cwd and fail with
+ * MODULE_NOT_FOUND. */
+export function nodeCommand(targetPath: string): string {
+  return targetPath.includes(" ") ? `node "${targetPath}"` : `node ${targetPath}`;
+}
+
 const cmdHook = (dist: string, file: string, timeout: number) => ({
   hooks: [{ type: "command", command: `node "${join(dist, file)}"`, timeout }],
 });
@@ -282,7 +291,7 @@ function mergeHarnessHooks(
         : spec.configStyle === "process"
           ? processHook(dist, hook.entry, hook.timeout!)
           : {
-              command: `node "${join(dist, hook.entry)}"`,
+              command: nodeCommand(join(dist, hook.entry)),
               ...(hook.timeout ? { timeout: hook.timeout } : {}),
             };
     hooks[hook.event] = mergeHookEvent(hooks[hook.event], entry);
@@ -750,14 +759,14 @@ const antigravity: HarnessInstaller = {
     if (!settings.statusLine) {
       settings.statusLine = {
         type: "command",
-        command: `node "${join(c.dist, "antigravity-statusline.js")}"`,
+        command: nodeCommand(join(c.dist, "antigravity-statusline.js")),
       };
       writeJson(settingsPath, settings);
       c.log?.(`antigravity-cli: Hindsight status line enabled in ${settingsPath}`);
     } else if (JSON.stringify(settings.statusLine).includes(MARKER)) {
       settings.statusLine = {
         type: "command",
-        command: `node "${join(c.dist, "antigravity-statusline.js")}"`,
+        command: nodeCommand(join(c.dist, "antigravity-statusline.js")),
       };
       writeJson(settingsPath, settings);
     } else {
